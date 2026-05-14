@@ -241,7 +241,7 @@
 
         <div class="input-group">
             <input type="text" id="memo-input" placeholder="메모를 입력하세요..." autocomplete="off">
-            <button id="add-btn">추가</button>
+            <button type="button" id="add-btn">추가</button>
         </div>
 
         <ul id="memo-list" class="memo-list">
@@ -252,15 +252,42 @@
     </div>
 
     <script>
-        // Supabase 초기화
+        // 전역 변수 설정
+        let supabase;
         const SUPABASE_URL = 'https://jaqwphkqtuahfrdxaemu.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphcXdwaGtxdHVhaGZyZHhhZW11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3MTc5NTcsImV4cCI6MjA5NDI5Mzk1N30.J_xHyh135Kk-1RbP86N43NgeUSJPmJTXiIZ-a4gf15o';
-        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         const memoInput = document.getElementById('memo-input');
         const addBtn = document.getElementById('add-btn');
         const memoList = document.getElementById('memo-list');
         const emptyMsg = document.getElementById('empty-msg');
+
+        // 초기화 함수
+        function init() {
+            console.log('App initializing...');
+            
+            // 1. 이벤트 리스너 먼저 등록 (가장 중요)
+            addBtn.addEventListener('click', addMemo);
+            memoInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') addMemo();
+            });
+
+            // 2. Supabase 초기화
+            try {
+                if (window.supabase) {
+                    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                    console.log('Supabase initialized successfully');
+                    loadMemos(); // 초기 데이터 로드
+                } else {
+                    throw new Error('Supabase library not found. CDN 로드 확인 필요.');
+                }
+            } catch (err) {
+                console.error('Initialization error:', err);
+                emptyMsg.textContent = '서비스 연결에 실패했습니다: ' + err.message;
+            }
+
+            updateEmptyState();
+        }
 
         function updateEmptyState() {
             if (memoList.children.length === 0) {
@@ -271,31 +298,41 @@
         }
 
         async function loadMemos() {
+            if (!supabase) return;
+            
             console.log('Loading memos...');
             emptyMsg.textContent = '불러오는 중...';
-            const { data, error } = await supabase
-                .from('memos')
-                .select('*')
-                .order('created_at', { ascending: true });
+            
+            try {
+                const { data, error } = await supabase
+                    .from('memos')
+                    .select('*')
+                    .order('created_at', { ascending: true });
 
-            if (error) {
+                if (error) throw error;
+
+                console.log('Loaded memos:', data);
+                memoList.innerHTML = '';
+                data.forEach(memo => {
+                    createMemoElement(memo.id, memo.content);
+                });
+                emptyMsg.textContent = '메모가 없습니다. 새로운 메모를 추가해보세요!';
+            } catch (error) {
                 console.error('Error loading memos:', error);
-                emptyMsg.textContent = '데이터를 불러오지 못했습니다. 테이블이 있는지 확인해주세요.';
-                return;
+                emptyMsg.textContent = '데이터를 불러오지 못했습니다. 테이블 설정을 확인해주세요.';
+            } finally {
+                updateEmptyState();
             }
-
-            console.log('Loaded memos:', data);
-            memoList.innerHTML = '';
-            data.forEach(memo => {
-                createMemoElement(memo.id, memo.content);
-            });
-            emptyMsg.textContent = '메모가 없습니다. 새로운 메모를 추가해보세요!';
-            updateEmptyState();
         }
 
         async function addMemo() {
             const text = memoInput.value.trim();
             if (text === '') return;
+
+            if (!supabase) {
+                alert('데이터베이스가 연결되지 않았습니다.');
+                return;
+            }
 
             console.log('Adding memo:', text);
             addBtn.disabled = true;
@@ -305,48 +342,40 @@
                     .insert([{ content: text }])
                     .select();
 
-                console.log('Supabase response:', { data, error });
-
-                if (error) {
-                    alert('메모 저장 중 오류가 발생했습니다: ' + error.message);
-                    console.error('Supabase error:', error);
-                    return;
-                }
+                if (error) throw error;
 
                 if (data && data.length > 0) {
                     createMemoElement(data[0].id, data[0].content);
                     memoInput.value = '';
                     memoInput.focus();
-                } else {
-                    console.warn('No data returned from insert');
                 }
             } catch (err) {
-                console.error('Unexpected error in addMemo:', err);
-                alert('예상치 못한 오류가 발생했습니다: ' + err.message);
+                console.error('Add memo error:', err);
+                alert('메모 저장 실패: ' + (err.message || '알 수 없는 오류'));
             } finally {
                 addBtn.disabled = false;
+                updateEmptyState();
             }
         }
 
         function createMemoElement(id, text) {
             const li = document.createElement('li');
             li.className = 'memo-item';
-            li.dataset.id = id; // Supabase ID 저장
+            li.dataset.id = id;
             renderMemoContent(li, text);
             memoList.appendChild(li);
-            updateEmptyState();
         }
 
         function renderMemoContent(li, text) {
             li.innerHTML = `
                 <span class="memo-text">${escapeHtml(text)}</span>
                 <div class="btn-group">
-                    <button class="edit-btn" title="수정">
+                    <button type="button" class="edit-btn" title="수정">
                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
                         </svg>
                     </button>
-                    <button class="delete-btn" title="삭제">
+                    <button type="button" class="delete-btn" title="삭제">
                         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                         </svg>
@@ -360,25 +389,24 @@
 
         async function deleteMemo(li) {
             const id = li.dataset.id;
+            if (!supabase) return;
+
             li.classList.add('loading');
+            try {
+                const { error } = await supabase.from('memos').delete().eq('id', id);
+                if (error) throw error;
 
-            const { error } = await supabase
-                .from('memos')
-                .delete()
-                .eq('id', id);
-
-            if (error) {
-                alert('삭제 중 오류가 발생했습니다.');
+                li.style.opacity = '0';
+                li.style.transform = 'scale(0.95)';
+                setTimeout(() => {
+                    li.remove();
+                    updateEmptyState();
+                }, 200);
+            } catch (err) {
+                console.error('Delete error:', err);
+                alert('삭제 실패');
                 li.classList.remove('loading');
-                return;
             }
-
-            li.style.opacity = '0';
-            li.style.transform = 'scale(0.95)';
-            setTimeout(() => {
-                li.remove();
-                updateEmptyState();
-            }, 200);
         }
 
         function enterEditMode(li, currentText) {
@@ -386,8 +414,8 @@
             li.innerHTML = `
                 <input type="text" class="edit-input" value="${escapeHtml(currentText)}">
                 <div class="btn-group">
-                    <button class="save-btn">저장</button>
-                    <button class="cancel-btn">취소</button>
+                    <button type="button" class="save-btn">저장</button>
+                    <button type="button" class="cancel-btn">취소</button>
                 </div>
             `;
 
@@ -397,21 +425,18 @@
 
             const save = async () => {
                 const newText = input.value.trim();
-                if (newText === '') return;
+                if (newText === '' || !supabase) return;
                 
                 li.classList.add('loading');
-                const { error } = await supabase
-                    .from('memos')
-                    .update({ content: newText })
-                    .eq('id', id);
-
-                if (error) {
-                    alert('수정 중 오류가 발생했습니다.');
+                try {
+                    const { error } = await supabase.from('memos').update({ content: newText }).eq('id', id);
+                    if (error) throw error;
+                    exitEditMode(li, newText);
+                } catch (err) {
+                    console.error('Update error:', err);
+                    alert('수정 실패');
                     li.classList.remove('loading');
-                    return;
                 }
-
-                exitEditMode(li, newText);
             };
 
             const cancel = () => exitEditMode(li, currentText);
@@ -435,15 +460,9 @@
             return div.innerHTML;
         }
 
-        addBtn.addEventListener('click', addMemo);
-        memoInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') addMemo();
-        });
+        // 실행
+        init();
 
-        // 초기 실행
-        loadMemos();
-
-        updateEmptyState();
     </script>
 
 </body>
