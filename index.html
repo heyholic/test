@@ -271,6 +271,7 @@
         }
 
         async function loadMemos() {
+            console.log('Loading memos...');
             emptyMsg.textContent = '불러오는 중...';
             const { data, error } = await supabase
                 .from('memos')
@@ -283,6 +284,7 @@
                 return;
             }
 
+            console.log('Loaded memos:', data);
             memoList.innerHTML = '';
             data.forEach(memo => {
                 createMemoElement(memo.id, memo.content);
@@ -295,24 +297,34 @@
             const text = memoInput.value.trim();
             if (text === '') return;
 
+            console.log('Adding memo:', text);
             addBtn.disabled = true;
-            const { data, error } = await supabase
-                .from('memos')
-                .insert([{ content: text }])
-                .select();
+            try {
+                const { data, error } = await supabase
+                    .from('memos')
+                    .insert([{ content: text }])
+                    .select();
 
-            addBtn.disabled = false;
+                console.log('Supabase response:', { data, error });
 
-            if (error) {
-                alert('메모 저장 중 오류가 발생했습니다.');
-                console.error(error);
-                return;
-            }
+                if (error) {
+                    alert('메모 저장 중 오류가 발생했습니다: ' + error.message);
+                    console.error('Supabase error:', error);
+                    return;
+                }
 
-            if (data && data.length > 0) {
-                createMemoElement(data[0].id, data[0].content);
-                memoInput.value = '';
-                memoInput.focus();
+                if (data && data.length > 0) {
+                    createMemoElement(data[0].id, data[0].content);
+                    memoInput.value = '';
+                    memoInput.focus();
+                } else {
+                    console.warn('No data returned from insert');
+                }
+            } catch (err) {
+                console.error('Unexpected error in addMemo:', err);
+                alert('예상치 못한 오류가 발생했습니다: ' + err.message);
+            } finally {
+                addBtn.disabled = false;
             }
         }
 
