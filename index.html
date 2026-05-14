@@ -7,6 +7,8 @@
     <title>심플 웹 메모장</title>
     <!-- Google Fonts: Inter -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <!-- Supabase JS SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         :root {
             --primary: #6366f1;
@@ -221,6 +223,12 @@
             padding: 20px;
             font-size: 0.9rem;
         }
+
+        /* Adding a simple loading indicator style */
+        .loading {
+            opacity: 0.5;
+            pointer-events: none;
+        }
     </style>
 </head>
 
@@ -244,6 +252,11 @@
     </div>
 
     <script>
+        // Supabase 초기화
+        const SUPABASE_URL = 'https://jaqwphkqtuahfrdxaemu.supabase.co';
+        const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphcXdwaGtxdHVhaGZyZHhhZW11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3MTc5NTcsImV4cCI6MjA5NDI5Mzk1N30.J_xHyh135Kk-1RbP86N43NgeUSJPmJTXiIZ-a4gf15o';
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
         const memoInput = document.getElementById('memo-input');
         const addBtn = document.getElementById('add-btn');
         const memoList = document.getElementById('memo-list');
@@ -257,19 +270,56 @@
             }
         }
 
-        function addMemo() {
+        async function loadMemos() {
+            emptyMsg.textContent = '불러오는 중...';
+            const { data, error } = await supabase
+                .from('memos')
+                .select('*')
+                .order('created_at', { ascending: true });
+
+            if (error) {
+                console.error('Error loading memos:', error);
+                emptyMsg.textContent = '데이터를 불러오지 못했습니다. 테이블이 있는지 확인해주세요.';
+                return;
+            }
+
+            memoList.innerHTML = '';
+            data.forEach(memo => {
+                createMemoElement(memo.id, memo.content);
+            });
+            emptyMsg.textContent = '메모가 없습니다. 새로운 메모를 추가해보세요!';
+            updateEmptyState();
+        }
+
+        async function addMemo() {
             const text = memoInput.value.trim();
             if (text === '') return;
 
-            createMemoElement(text);
-            memoInput.value = '';
-            memoInput.focus();
-            saveMemos();
+            addBtn.disabled = true;
+            const { data, error } = await supabase
+                .from('memos')
+                .insert([{ content: text }])
+                .select();
+
+            addBtn.disabled = false;
+
+            if (error) {
+                alert('메모 저장 중 오류가 발생했습니다.');
+                console.error(error);
+                return;
+            }
+
+            if (data && data.length > 0) {
+                createMemoElement(data[0].id, data[0].content);
+                memoInput.value = '';
+                memoInput.focus();
+            }
         }
 
-        function createMemoElement(text) {
+        function createMemoElement(id, text) {
             const li = document.createElement('li');
             li.className = 'memo-item';
+            li.dataset.id = id; // Supabase ID 저장
             renderMemoContent(li, text);
             memoList.appendChild(li);
             updateEmptyState();
@@ -296,17 +346,31 @@
             li.querySelector('.delete-btn').addEventListener('click', () => deleteMemo(li));
         }
 
-        function deleteMemo(li) {
+        async function deleteMemo(li) {
+            const id = li.dataset.id;
+            li.classList.add('loading');
+
+            const { error } = await supabase
+                .from('memos')
+                .delete()
+                .eq('id', id);
+
+            if (error) {
+                alert('삭제 중 오류가 발생했습니다.');
+                li.classList.remove('loading');
+                return;
+            }
+
             li.style.opacity = '0';
             li.style.transform = 'scale(0.95)';
             setTimeout(() => {
                 li.remove();
                 updateEmptyState();
-                saveMemos(); // 삭제 후 저장 필수!
             }, 200);
         }
 
         function enterEditMode(li, currentText) {
+            const id = li.dataset.id;
             li.innerHTML = `
                 <input type="text" class="edit-input" value="${escapeHtml(currentText)}">
                 <div class="btn-group">
@@ -319,11 +383,23 @@
             input.focus();
             input.setSelectionRange(input.value.length, input.value.length);
 
-            const save = () => {
+            const save = async () => {
                 const newText = input.value.trim();
                 if (newText === '') return;
+                
+                li.classList.add('loading');
+                const { error } = await supabase
+                    .from('memos')
+                    .update({ content: newText })
+                    .eq('id', id);
+
+                if (error) {
+                    alert('수정 중 오류가 발생했습니다.');
+                    li.classList.remove('loading');
+                    return;
+                }
+
                 exitEditMode(li, newText);
-                saveMemos();
             };
 
             const cancel = () => exitEditMode(li, currentText);
@@ -337,6 +413,7 @@
         }
 
         function exitEditMode(li, text) {
+            li.classList.remove('loading');
             renderMemoContent(li, text);
         }
 
@@ -346,22 +423,6 @@
             return div.innerHTML;
         }
 
-        function saveMemos() {
-            const memos = [];
-            document.querySelectorAll('.memo-text').forEach(span => {
-                memos.push(span.textContent);
-            });
-            localStorage.setItem('simple-notepad-memos', JSON.stringify(memos));
-        }
-
-        function loadMemos() {
-            const saved = localStorage.getItem('simple-notepad-memos');
-            if (saved) {
-                const memos = JSON.parse(saved);
-                memos.forEach(text => createMemoElement(text));
-            }
-        }
-
         addBtn.addEventListener('click', addMemo);
         memoInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter') addMemo();
@@ -369,6 +430,7 @@
 
         // 초기 실행
         loadMemos();
+
         updateEmptyState();
     </script>
 
