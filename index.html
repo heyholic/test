@@ -102,6 +102,7 @@
 
         .memo-list {
             list-style: none;
+            padding: 0;
         }
 
         .memo-item {
@@ -113,13 +114,7 @@
             border: 1px solid var(--border);
             border-radius: 12px;
             margin-bottom: 12px;
-            animation: slideIn 0.3s ease-out;
             transition: transform 0.2s;
-        }
-
-        .memo-item:hover {
-            transform: translateY(-2px);
-            border-color: var(--primary);
         }
 
         .memo-text {
@@ -130,104 +125,28 @@
             margin-right: 12px;
         }
 
-        .delete-btn {
-            background: none;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            padding: 8px;
-            border-radius: 8px;
-            transition: color 0.2s, background-color 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .delete-btn:hover {
-            color: var(--danger);
-            background-color: #fee2e2;
-        }
-
-        .edit-btn {
-            background: none;
-            border: none;
-            color: var(--text-muted);
-            cursor: pointer;
-            padding: 8px;
-            border-radius: 8px;
-            transition: color 0.2s, background-color 0.2s;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .edit-btn:hover {
-            color: var(--primary);
-            background-color: #eef2ff;
-        }
-
         .btn-group {
             display: flex;
-            gap: 4px;
+            gap: 8px;
         }
 
-        .edit-input {
-            flex: 1;
-            padding: 8px 12px;
-            border: 2px solid var(--primary);
+        .edit-btn, .delete-btn {
+            padding: 6px 10px;
             border-radius: 8px;
-            outline: none;
-            font-size: 0.95rem;
-            margin-right: 12px;
-        }
-
-        .save-btn {
-            background-color: var(--primary);
-            color: white;
             border: none;
-            padding: 6px 12px;
-            border-radius: 8px;
-            font-weight: 600;
             cursor: pointer;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
+            transition: background 0.2s;
         }
 
-        .cancel-btn {
-            background-color: var(--border);
-            color: var(--text-muted);
-            border: none;
-            padding: 6px 12px;
-            border-radius: 8px;
-            font-weight: 600;
-            cursor: pointer;
-            font-size: 0.85rem;
-            margin-left: 4px;
-        }
+        .edit-btn { background: #eef2ff; color: var(--primary); }
+        .delete-btn { background: #fee2e2; color: var(--danger); }
 
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(10px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        /* Empty state styling */
         .empty-state {
             text-align: center;
             color: var(--text-muted);
             padding: 20px;
             font-size: 0.9rem;
-        }
-
-        /* Adding a simple loading indicator style */
-        .loading {
-            opacity: 0.5;
-            pointer-events: none;
         }
     </style>
 </head>
@@ -241,138 +160,115 @@
 
         <div class="input-group">
             <input type="text" id="memo-input" placeholder="메모를 입력하세요..." autocomplete="off">
-            <button type="button" id="add-btn">추가</button>
+            <button type="button" id="add-btn" onclick="addMemo()">추가</button>
         </div>
 
-        <ul id="memo-list" class="memo-list">
-            <!-- 메모가 여기에 추가됩니다 -->
-        </ul>
+        <ul id="memo-list" class="memo-list"></ul>
 
         <div id="empty-msg" class="empty-state">메모가 없습니다. 새로운 메모를 추가해보세요!</div>
     </div>
 
     <script>
-        // 0. 전역 에러 핸들러 (디버깅용)
-        window.onerror = function(msg, url, line) {
-            const errBox = document.getElementById('empty-msg');
-            if (errBox) {
-                errBox.style.color = 'red';
-                errBox.innerHTML = `자바스크립트 오류: ${msg} <br> (라인: ${line})`;
-            }
-            return false;
+        // 1. 에러 캡처
+        window.onerror = function(m, u, l) {
+            alert("에러 발생: " + m + " (라인: " + l + ")");
         };
 
-        // 전역 변수
-        let supabase;
         const SUPABASE_URL = 'https://jaqwphkqtuahfrdxaemu.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphcXdwaGtxdHVhaGZyZHhhZW11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3MTc5NTcsImV4cCI6MjA5NDI5Mzk1N30.J_xHyh135Kk-1RbP86N43NgeUSJPmJTXiIZ-a4gf15o';
+        let supabaseClient = null;
 
-        const memoInput = document.getElementById('memo-input');
-        const addBtn = document.getElementById('add-btn');
-        const memoList = document.getElementById('memo-list');
-        const emptyMsg = document.getElementById('empty-msg');
-
-        function init() {
-            console.log('App init start');
-            
-            // 버튼 이벤트 연결
-            addBtn.onclick = addMemo;
-            memoInput.onkeydown = (e) => { if (e.key === 'Enter') addMemo(); };
-
-            // Supabase 시도
-            try {
-                if (window.supabase) {
-                    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-                    loadMemos();
-                } else {
-                    console.error('Supabase SDK missing');
-                }
-            } catch (e) {
-                console.error('Supabase init failed', e);
+        // 초기화
+        window.onload = function() {
+            console.log("App ready");
+            if (window.supabase) {
+                supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+                loadFromDB();
             }
-            updateEmptyState();
+            updateUI();
+        };
+
+        function updateUI() {
+            const list = document.getElementById('memo-list');
+            const msg = document.getElementById('empty-msg');
+            msg.style.display = list.children.length === 0 ? 'block' : 'none';
         }
 
-        function updateEmptyState() {
-            emptyMsg.style.display = memoList.children.length === 0 ? 'block' : 'none';
+        async function loadFromDB() {
+            if (!supabaseClient) return;
+            const { data } = await supabaseClient.from('memos').select('*').order('created_at', { ascending: true });
+            if (data) {
+                const list = document.getElementById('memo-list');
+                list.innerHTML = '';
+                data.forEach(m => appendMemoToUI(m.id, m.content));
+                updateUI();
+            }
         }
 
-        function createMemoElement(id, text) {
+        function appendMemoToUI(id, text) {
+            const list = document.getElementById('memo-list');
             const li = document.createElement('li');
             li.className = 'memo-item';
-            li.dataset.id = id;
+            li.setAttribute('data-id', id);
             li.innerHTML = `
                 <span class="memo-text">${text}</span>
                 <div class="btn-group">
-                    <button type="button" class="edit-btn">수정</button>
-                    <button type="button" class="delete-btn">삭제</button>
+                    <button type="button" class="edit-btn" onclick="editMemo(this)">수정</button>
+                    <button type="button" class="delete-btn" onclick="deleteMemo(this)">삭제</button>
                 </div>
             `;
-            
-            // 삭제 버튼 이벤트
-            li.querySelector('.delete-btn').onclick = () => {
-                li.remove();
-                updateEmptyState();
-                if (supabase && !id.toString().startsWith('temp')) {
-                    supabase.from('memos').delete().eq('id', id).then();
-                }
-            };
-
-            // 수정 버튼 이벤트
-            li.querySelector('.edit-btn').onclick = () => {
-                const newText = prompt('수정할 내용을 입력하세요:', text);
-                if (newText && newText !== text) {
-                    li.querySelector('.memo-text').textContent = newText;
-                    if (supabase && !id.toString().startsWith('temp')) {
-                        supabase.from('memos').update({ content: newText }).eq('id', id).then();
-                    }
-                }
-            };
-
-            memoList.appendChild(li);
-        }
-
-        async function loadMemos() {
-            if (!supabase) return;
-            try {
-                const { data, error } = await supabase.from('memos').select('*').order('created_at', { ascending: true });
-                if (data) {
-                    memoList.innerHTML = '';
-                    data.forEach(m => createMemoElement(m.id, m.content));
-                    updateEmptyState();
-                }
-            } catch (e) {
-                console.error('Load failed', e);
-            }
+            list.appendChild(li);
         }
 
         function addMemo() {
-            const text = memoInput.value.trim();
+            const input = document.getElementById('memo-input');
+            const text = input.value.trim();
             if (!text) return;
-
-            console.log('Add button clicked:', text);
 
             // 1. 즉시 화면 추가
             const tempId = 'temp-' + Date.now();
-            createMemoElement(tempId, text);
-            
-            // 2. 입력창 비우기
-            memoInput.value = '';
-            updateEmptyState();
+            appendMemoToUI(tempId, text);
+            input.value = '';
+            updateUI();
 
-            // 3. DB 저장 (조용히 처리)
-            if (supabase) {
-                supabase.from('memos').insert([{ content: text }]).select().then(({data}) => {
+            // 2. DB 저장
+            if (supabaseClient) {
+                supabaseClient.from('memos').insert([{ content: text }]).select().then(({data, error}) => {
+                    if (error) console.error("DB Save Error", error);
                     if (data && data[0]) {
-                        const li = memoList.querySelector(`[data-id="${tempId}"]`);
-                        if (li) li.dataset.id = data[0].id;
+                        const li = document.querySelector(`[data-id="${tempId}"]`);
+                        if (li) li.setAttribute('data-id', data[0].id);
                     }
                 });
             }
         }
 
-        // 실행
-        init();
+        function deleteMemo(btn) {
+            const li = btn.closest('.memo-item');
+            const id = li.getAttribute('data-id');
+            li.remove();
+            updateUI();
+
+            if (supabaseClient && !id.startsWith('temp')) {
+                supabaseClient.from('memos').delete().eq('id', id).then();
+            }
+        }
+
+        function editMemo(btn) {
+            const li = btn.closest('.memo-item');
+            const span = li.querySelector('.memo-text');
+            const id = li.getAttribute('data-id');
+            const oldText = span.textContent;
+            const newText = prompt('수정할 내용을 입력하세요:', oldText);
+            
+            if (newText && newText !== oldText) {
+                span.textContent = newText;
+                if (supabaseClient && !id.startsWith('temp')) {
+                    supabaseClient.from('memos').update({ content: newText }).eq('id', id).then();
+                }
+            }
+        }
     </script>
 </body>
+
 </html>
