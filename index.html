@@ -252,7 +252,17 @@
     </div>
 
     <script>
-        // 전역 변수 설정
+        // 0. 전역 에러 핸들러 (디버깅용)
+        window.onerror = function(msg, url, line) {
+            const errBox = document.getElementById('empty-msg');
+            if (errBox) {
+                errBox.style.color = 'red';
+                errBox.innerHTML = `자바스크립트 오류: ${msg} <br> (라인: ${line})`;
+            }
+            return false;
+        };
+
+        // 전역 변수
         let supabase;
         const SUPABASE_URL = 'https://jaqwphkqtuahfrdxaemu.supabase.co';
         const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphcXdwaGtxdHVhaGZyZHhhZW11Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3MTc5NTcsImV4cCI6MjA5NDI5Mzk1N30.J_xHyh135Kk-1RbP86N43NgeUSJPmJTXiIZ-a4gf15o';
@@ -262,214 +272,106 @@
         const memoList = document.getElementById('memo-list');
         const emptyMsg = document.getElementById('empty-msg');
 
-        // 초기화 함수
         function init() {
-            console.log('App initializing...');
+            console.log('App init start');
             
-            // 이벤트 리스너 등록
-            addBtn.addEventListener('click', addMemo);
-            memoInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') addMemo();
-            });
+            // 버튼 이벤트 연결
+            addBtn.onclick = addMemo;
+            memoInput.onkeydown = (e) => { if (e.key === 'Enter') addMemo(); };
 
-            // Supabase 초기화
+            // Supabase 시도
             try {
                 if (window.supabase) {
                     supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-                    console.log('Supabase client created');
                     loadMemos();
                 } else {
-                    console.warn('Supabase SDK not loaded');
-                    emptyMsg.textContent = '데이터베이스 연결 라이브러리를 불러오지 못했습니다.';
+                    console.error('Supabase SDK missing');
                 }
-            } catch (err) {
-                console.error('Init error:', err);
+            } catch (e) {
+                console.error('Supabase init failed', e);
             }
-
             updateEmptyState();
         }
 
         function updateEmptyState() {
-            if (memoList.children.length === 0) {
-                emptyMsg.style.display = 'block';
-            } else {
-                emptyMsg.style.display = 'none';
-            }
-        }
-
-        async function loadMemos() {
-            if (!supabase) return;
-            
-            emptyMsg.textContent = '메모를 불러오는 중...';
-            try {
-                const { data, error } = await supabase
-                    .from('memos')
-                    .select('*')
-                    .order('created_at', { ascending: true });
-
-                if (error) throw error;
-
-                memoList.innerHTML = '';
-                if (data) {
-                    data.forEach(memo => {
-                        createMemoElement(memo.id, memo.content);
-                    });
-                }
-                emptyMsg.textContent = '메모가 없습니다. 새로운 메모를 추가해보세요!';
-            } catch (error) {
-                console.error('Load error:', error);
-                emptyMsg.textContent = '저장된 메모를 불러오지 못했습니다.';
-            } finally {
-                updateEmptyState();
-            }
-        }
-
-        async function addMemo() {
-            const text = memoInput.value.trim();
-            if (text === '') return;
-
-            console.log('Adding memo:', text);
-            
-            // 1. 화면에 즉시 추가 (Optimistic UI)
-            const tempId = 'temp-' + Date.now();
-            createMemoElement(tempId, text);
-            memoInput.value = '';
-            memoInput.focus();
-            updateEmptyState();
-
-            // 2. 데이터베이스 저장 (백그라운드)
-            if (supabase) {
-                try {
-                    const { data, error } = await supabase
-                        .from('memos')
-                        .insert([{ content: text }])
-                        .select();
-
-                    if (error) throw error;
-
-                    // 실제 ID로 교체
-                    const li = memoList.querySelector(`[data-id="${tempId}"]`);
-                    if (li && data && data[0]) {
-                        li.dataset.id = data[0].id;
-                        console.log('Memo saved to DB:', data[0].id);
-                    }
-                } catch (err) {
-                    console.error('DB Save Error:', err);
-                    alert('데이터베이스 저장에 실패했습니다. (메모는 현재 브라우저에만 표시됩니다)');
-                }
-            } else {
-                console.warn('Supabase not connected, saved only locally');
-            }
+            emptyMsg.style.display = memoList.children.length === 0 ? 'block' : 'none';
         }
 
         function createMemoElement(id, text) {
             const li = document.createElement('li');
             li.className = 'memo-item';
             li.dataset.id = id;
-            renderMemoContent(li, text);
-            memoList.appendChild(li);
-        }
-
-        function renderMemoContent(li, text) {
             li.innerHTML = `
-                <span class="memo-text">${escapeHtml(text)}</span>
+                <span class="memo-text">${text}</span>
                 <div class="btn-group">
-                    <button type="button" class="edit-btn" title="수정">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                    </button>
-                    <button type="button" class="delete-btn" title="삭제">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                    </button>
+                    <button type="button" class="edit-btn">수정</button>
+                    <button type="button" class="delete-btn">삭제</button>
                 </div>
             `;
-
-            li.querySelector('.edit-btn').addEventListener('click', () => enterEditMode(li, text));
-            li.querySelector('.delete-btn').addEventListener('click', () => deleteMemo(li));
-        }
-
-        async function deleteMemo(li) {
-            const id = li.dataset.id;
             
-            // 화면에서 즉시 제거
-            li.style.opacity = '0';
-            li.style.transform = 'scale(0.95)';
-            setTimeout(() => {
+            // 삭제 버튼 이벤트
+            li.querySelector('.delete-btn').onclick = () => {
                 li.remove();
                 updateEmptyState();
-            }, 200);
-
-            // DB 삭제
-            if (supabase && !id.startsWith('temp-')) {
-                try {
-                    const { error } = await supabase.from('memos').delete().eq('id', id);
-                    if (error) throw error;
-                } catch (err) {
-                    console.error('Delete error:', err);
+                if (supabase && !id.toString().startsWith('temp')) {
+                    supabase.from('memos').delete().eq('id', id).then();
                 }
-            }
-        }
+            };
 
-        function enterEditMode(li, currentText) {
-            const id = li.dataset.id;
-            const originalContent = li.innerHTML;
-
-            li.innerHTML = `
-                <input type="text" class="edit-input" value="${escapeHtml(currentText)}">
-                <div class="btn-group">
-                    <button type="button" class="save-btn">저장</button>
-                    <button type="button" class="cancel-btn">취소</button>
-                </div>
-            `;
-
-            const input = li.querySelector('.edit-input');
-            input.focus();
-            input.setSelectionRange(input.value.length, input.value.length);
-
-            const save = async () => {
-                const newText = input.value.trim();
-                if (newText === '') return;
-                
-                // UI 업데이트
-                renderMemoContent(li, newText);
-
-                // DB 업데이트
-                if (supabase && !id.startsWith('temp-')) {
-                    try {
-                        const { error } = await supabase.from('memos').update({ content: newText }).eq('id', id);
-                        if (error) throw error;
-                    } catch (err) {
-                        console.error('Update error:', err);
-                        alert('저장 실패 (화면에만 반영됨)');
+            // 수정 버튼 이벤트
+            li.querySelector('.edit-btn').onclick = () => {
+                const newText = prompt('수정할 내용을 입력하세요:', text);
+                if (newText && newText !== text) {
+                    li.querySelector('.memo-text').textContent = newText;
+                    if (supabase && !id.toString().startsWith('temp')) {
+                        supabase.from('memos').update({ content: newText }).eq('id', id).then();
                     }
                 }
             };
 
-            const cancel = () => {
-                li.innerHTML = originalContent;
-                // 리스너 다시 연결 필요
-                li.querySelector('.edit-btn').addEventListener('click', () => enterEditMode(li, currentText));
-                li.querySelector('.delete-btn').addEventListener('click', () => deleteMemo(li));
-            };
-
-            li.querySelector('.save-btn').addEventListener('click', save);
-            li.querySelector('.cancel-btn').addEventListener('click', cancel);
-            input.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter') save();
-                if (e.key === 'Escape') cancel();
-            });
+            memoList.appendChild(li);
         }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
+        async function loadMemos() {
+            if (!supabase) return;
+            try {
+                const { data, error } = await supabase.from('memos').select('*').order('created_at', { ascending: true });
+                if (data) {
+                    memoList.innerHTML = '';
+                    data.forEach(m => createMemoElement(m.id, m.content));
+                    updateEmptyState();
+                }
+            } catch (e) {
+                console.error('Load failed', e);
+            }
         }
 
-        // 앱 실행
+        function addMemo() {
+            const text = memoInput.value.trim();
+            if (!text) return;
+
+            console.log('Add button clicked:', text);
+
+            // 1. 즉시 화면 추가
+            const tempId = 'temp-' + Date.now();
+            createMemoElement(tempId, text);
+            
+            // 2. 입력창 비우기
+            memoInput.value = '';
+            updateEmptyState();
+
+            // 3. DB 저장 (조용히 처리)
+            if (supabase) {
+                supabase.from('memos').insert([{ content: text }]).select().then(({data}) => {
+                    if (data && data[0]) {
+                        const li = memoList.querySelector(`[data-id="${tempId}"]`);
+                        if (li) li.dataset.id = data[0].id;
+                    }
+                });
+            }
+        }
+
+        // 실행
         init();
     </script>
 </body>
